@@ -19,7 +19,17 @@ from qiskit.circuit.library import RealAmplitudes
 from qiskit_algorithms.optimizers import COBYLA
 from qiskit_machine_learning.algorithms.classifiers import VQC
 from qiskit_machine_learning.algorithms.regressors import VQR
-from sklearn.datasets import fetch_california_housing, load_diabetes, load_iris
+from sklearn.datasets import (
+    fetch_california_housing,
+    load_breast_cancer,
+    load_diabetes,
+    load_digits,
+    load_iris,
+    load_wine,
+    make_blobs,
+    make_circles,
+    make_moons,
+)
 from sklearn.metrics import (
     accuracy_score,
     classification_report,
@@ -30,7 +40,7 @@ from sklearn.metrics import (
     r2_score,
     recall_score,
 )
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import StratifiedShuffleSplit, train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -274,6 +284,23 @@ def encode_dataset_adex(X: np.ndarray, verbose: bool = True) -> np.ndarray:
     return out
 
 
+def stratified_train_subset(
+    X: np.ndarray,
+    y: np.ndarray,
+    n_subset: int,
+    random_state: int,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Ambil subset berukuran n_subset dengan proporsi kelas tetap (untuk stratify di split berikutnya)."""
+    X = np.asarray(X, dtype=float)
+    y = np.asarray(y)
+    n = min(int(n_subset), len(X))
+    if n == len(X):
+        return X, y
+    sss = StratifiedShuffleSplit(n_splits=1, train_size=n, random_state=random_state)
+    tr_idx, _ = next(sss.split(X, y))
+    return X[tr_idx], y[tr_idx]
+
+
 def adex_qml_train_eval(
     X: np.ndarray,
     y: np.ndarray,
@@ -395,27 +422,61 @@ def main():
     clf_rows: list[dict[str, Any]] = []
     reg_rows: list[dict[str, Any]] = []
 
-    print("=== Iris klasifikasi (subset) ===")
     iris = load_iris()
-    idx = rng.choice(len(iris.data), size=min(n_demo, len(iris.data)), replace=False)
-    maxiter_clf = 35
-    res_clf = adex_qml_train_eval(
-        iris.data[idx],
-        iris.target[idx],
-        task="classification",
-        maxiter=maxiter_clf,
-        test_size=test_size,
-        random_state=random_state,
+    wine_ds = load_wine()
+    cancer_ds = load_breast_cancer()
+    digits_ds = load_digits()
+    Xm, ym = make_moons(n_samples=300, noise=0.2, random_state=random_state)
+    Xc, yc = make_circles(
+        n_samples=300, noise=0.05, factor=0.5, random_state=random_state
     )
-    clf_rows.append(
-        result_to_evaluation_row(
-            res_clf,
-            "iris_species",
-            maxiter_clf,
-            test_size,
-            random_state,
+    Xb, yb = make_blobs(
+        n_samples=300, centers=3, n_features=4, random_state=random_state
+    )
+    classification_runs: list[tuple[str, str, np.ndarray, np.ndarray, int, int]] = [
+        ("Iris", "iris_species", iris.data, iris.target, n_demo, 35),
+        ("Wine", "wine", wine_ds.data, wine_ds.target, min(60, len(wine_ds.target)), 35),
+        (
+            "Breast cancer",
+            "breast_cancer",
+            cancer_ds.data,
+            cancer_ds.target,
+            min(60, len(cancer_ds.target)),
+            30,
+        ),
+        (
+            "Digits",
+            "digits",
+            digits_ds.data,
+            digits_ds.target,
+            min(120, len(digits_ds.target)),
+            25,
+        ),
+        ("Moons", "moons", Xm, ym, 80, 35),
+        ("Circles", "circles", Xc, yc, 80, 35),
+        ("Blobs", "blobs", Xb, yb, 80, 35),
+    ]
+
+    for title, csv_name, X, y, n_sub, maxiter_clf in classification_runs:
+        print(f"\n=== {title} klasifikasi (subset) ===")
+        Xs, ys = stratified_train_subset(X, y, n_sub, random_state)
+        res_clf = adex_qml_train_eval(
+            Xs,
+            ys,
+            task="classification",
+            maxiter=maxiter_clf,
+            test_size=test_size,
+            random_state=random_state,
         )
-    )
+        clf_rows.append(
+            result_to_evaluation_row(
+                res_clf,
+                csv_name,
+                maxiter_clf,
+                test_size,
+                random_state,
+            )
+        )
 
     print("\n=== Iris regresi: 3 fitur -> lebar kelopak ===")
     Xr = iris.data[:, :3]
