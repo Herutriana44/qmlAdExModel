@@ -15,7 +15,8 @@ from qiskit.circuit.library import RealAmplitudes
 from qiskit_algorithms.optimizers import COBYLA
 from qiskit_machine_learning.algorithms.classifiers import VQC
 from qiskit_machine_learning.algorithms.regressors import VQR
-from qiskit_machine_learning.circuit.library import RawFeatureVector
+# from  qiskit_machine_learning.circuit.library import RawFeatureVector
+from qiskit_machine_learning.circuit.library import raw_feature_vector
 from sklearn.datasets import fetch_california_housing, load_diabetes, load_iris
 from sklearn.metrics import (
     accuracy_score,
@@ -43,8 +44,8 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 TaskType = Literal["classification", "regression"]
 
 
-def amplitude_feature_map(n_features: int) -> RawFeatureVector:
-    return RawFeatureVector(n_features)
+def amplitude_feature_map(n_features: int) -> raw_feature_vector:
+    return raw_feature_vector(n_features)
 
 
 def qml_amplitude_train_eval(
