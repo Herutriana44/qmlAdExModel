@@ -15,7 +15,6 @@ from qiskit.circuit.library import RealAmplitudes
 from qiskit_algorithms.optimizers import COBYLA
 from qiskit_machine_learning.algorithms.classifiers import VQC
 from qiskit_machine_learning.algorithms.regressors import VQR
-# from  qiskit_machine_learning.circuit.library import RawFeatureVector
 from qiskit_machine_learning.circuit.library import raw_feature_vector
 from sklearn.datasets import fetch_california_housing, load_diabetes, load_iris
 from sklearn.metrics import (
@@ -40,13 +39,24 @@ from qml_study_common import (
 )
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
+# Membungkam peringatan precision/f1 ketika ada kelas yang tidak terprediksi
+warnings.filterwarnings("ignore", category=UserWarning, module="sklearn.metrics")
 
 TaskType = Literal["classification", "regression"]
 
+def pad_to_power_of_2(x: np.ndarray) -> np.ndarray:
+    """Menambah kolom nol agar jumlah fitur menjadi pangkat 2 (2, 4, 8, 16, dst)."""
+    n_features = x.shape[1]
+    if n_features == 0:
+        return x
+    target_dim = 1 << (n_features - 1).bit_length()
+    if n_features == target_dim:
+        return x
+    padding = target_dim - n_features
+    return np.hstack([x, np.zeros((x.shape[0], padding))])
 
-def amplitude_feature_map(n_features: int) -> raw_feature_vector:
+def amplitude_feature_map(n_features: int) -> Any:
     return raw_feature_vector(n_features)
-
 
 def qml_amplitude_train_eval(
     X: np.ndarray,
@@ -71,10 +81,17 @@ def qml_amplitude_train_eval(
         stratify_labels=(task == "classification"),
     )
 
+    # 1. Normalisasi L2 (Syarat Amplitude Encoding)
     z_tr = l2_normalize_rows(X_tr_p)
     z_te = l2_normalize_rows(X_te_p)
-    d = z_tr.shape[1]
-    feature_map = amplitude_feature_map(d)
+
+    # 2. FIX: Padding ke pangkat 2 terdekat (misal 5 -> 8)
+    z_tr = pad_to_power_of_2(z_tr)
+    z_te = pad_to_power_of_2(z_te)
+
+    d_final = z_tr.shape[1]
+    feature_map = amplitude_feature_map(d_final)
+
     ansatz = RealAmplitudes(
         feature_map.num_qubits, entanglement="linear", reps=ansatz_reps
     )
@@ -88,33 +105,21 @@ def qml_amplitude_train_eval(
         model = VQC(feature_map=feature_map, ansatz=ansatz, optimizer=optimizer)
         model.fit(z_tr, y_tr)
         y_pred = np.asarray(model.predict(z_te))
-        acc = float(accuracy_score(y_te, y_pred))
-        prec = float(
-            precision_score(y_te, y_pred, average="macro", zero_division=0)
-        )
-        rec = float(recall_score(y_te, y_pred, average="macro", zero_division=0))
-        f1 = float(f1_score(y_te, y_pred, average="macro", zero_division=0))
+
         metrics = {
-            "accuracy": acc,
-            "precision_macro": prec,
-            "recall_macro": rec,
-            "f1_macro": f1,
+            "accuracy": float(accuracy_score(y_te, y_pred)),
+            "precision_macro": float(precision_score(y_te, y_pred, average="macro", zero_division=0)),
+            "recall_macro": float(recall_score(y_te, y_pred, average="macro", zero_division=0)),
+            "f1_macro": float(f1_score(y_te, y_pred, average="macro", zero_division=0)),
         }
-        print(f"Test accuracy: {acc:.4f}")
-        print(classification_report(y_te, y_pred, digits=4))
+
+        print(f"Test accuracy: {metrics['accuracy']:.4f}")
+        print(classification_report(y_te, y_pred, digits=4, zero_division=0))
 
         return PipelineTrainEvalResult(
-            task=task,
-            model=model,
-            scaler_x=scaler_x,
-            pca=pca,
-            scaler_z=None,
-            label_encoder=label_encoder,
-            scaler_y=None,
-            metrics=metrics,
-            y_test=y_te,
-            y_pred=y_pred,
-            n_samples=int(X.shape[0]),
+            task=task, model=model, scaler_x=scaler_x, pca=pca,
+            scaler_z=None, label_encoder=label_encoder, scaler_y=None,
+            metrics=metrics, y_test=y_te, y_pred=y_pred, n_samples=int(X.shape[0]),
         )
 
     if task == "regression":
@@ -128,159 +133,68 @@ def qml_amplitude_train_eval(
         y_pred_s = np.asarray(model.predict(z_te), dtype=float).ravel()
         y_pred = scaler_y.inverse_transform(y_pred_s.reshape(-1, 1)).ravel()
 
-        mae = mean_absolute_error(y_te, y_pred)
         mse = mean_squared_error(y_te, y_pred)
         rmse = float(np.sqrt(mse))
-        r2 = r2_score(y_te, y_pred)
         metrics = {
-            "mae": float(mae),
+            "mae": float(mean_absolute_error(y_te, y_pred)),
             "mse": float(mse),
             "rmse": rmse,
-            "r2": float(r2),
+            "r2": float(r2_score(y_te, y_pred)),
         }
-        print(f"Test MAE={mae:.4f} RMSE={rmse:.4f} R²={r2:.4f}")
+        print(f"Test MAE={metrics['mae']:.4f} RMSE={rmse:.4f} R²={metrics['r2']:.4f}")
 
         return PipelineTrainEvalResult(
-            task=task,
-            model=model,
-            scaler_x=scaler_x,
-            pca=pca,
-            scaler_z=None,
-            label_encoder=None,
-            scaler_y=scaler_y,
-            metrics=metrics,
-            y_test=y_te,
-            y_pred=y_pred,
-            n_samples=int(X.shape[0]),
+            task=task, model=model, scaler_x=scaler_x, pca=pca,
+            scaler_z=None, label_encoder=None, scaler_y=scaler_y,
+            metrics=metrics, y_test=y_te, y_pred=y_pred, n_samples=int(X.shape[0]),
         )
 
     raise ValueError("task must be 'classification' or 'regression'")
 
-
 def main():
     test_size = 0.25
     random_state = 42
-    clf_rows: list[dict[str, Any]] = []
-    reg_rows: list[dict[str, Any]] = []
+    clf_rows, reg_rows = [], []
     iris = load_iris()
 
     for spec in load_classification_study_specs():
-        print(
-            f"\n=== {spec.title} klasifikasi — Amplitude (RawFeatureVector), "
-            f"denc={spec.denc} ==="
-        )
+        print(f"\n=== {spec.title} klasifikasi — Amplitude (RawFeatureVector), denc={spec.denc} ===")
+        print(f"jumlah fitur : {spec.X.shape[1]}")
         res = qml_amplitude_train_eval(
-            spec.X,
-            spec.y,
-            task="classification",
-            n_pca=spec.denc,
-            maxiter=spec.maxiter,
-            test_size=test_size,
-            random_state=random_state,
+            spec.X, spec.y, task="classification", n_pca=spec.denc,
+            maxiter=spec.maxiter, test_size=test_size, random_state=random_state,
         )
-        clf_rows.append(
-            result_to_evaluation_row(
-                res,
-                spec.csv_name,
-                spec.d_orig,
-                spec.denc,
-                spec.maxiter,
-                test_size,
-                random_state,
-            )
-        )
+        clf_rows.append(result_to_evaluation_row(
+            res, spec.csv_name, spec.d_orig, spec.denc, spec.maxiter, test_size, random_state
+        ))
 
-    print("\n=== Iris regresi: 3 fitur -> lebar kelopak (Amplitude) ===")
-    Xr = iris.data[:, :3]
-    yr = iris.data[:, 3]
-    d_iris = Xr.shape[1]
-    denc_iris = min(8, d_iris)
-    maxiter_iris_reg = 80
-    res_ir = qml_amplitude_train_eval(
-        Xr,
-        yr,
-        task="regression",
-        n_pca=denc_iris,
-        maxiter=maxiter_iris_reg,
-        test_size=test_size,
-        random_state=random_state,
-    )
-    reg_rows.append(
-        result_to_evaluation_row(
-            res_ir,
-            "iris_petal_width",
-            d_iris,
-            denc_iris,
-            maxiter_iris_reg,
-            test_size,
-            random_state,
-        )
-    )
+    # --- Regresi ---
+    datasets = [
+        ("iris_petal_width", iris.data[:, :3], iris.data[:, 3], 80),
+        ("diabetes_progression", load_diabetes().data, load_diabetes().target, 60),
+        ("california_housing", fetch_california_housing().data, fetch_california_housing().target, 50)
+    ]
 
-    print("\n=== Diabetes (regresi, Amplitude) ===")
-    dia = load_diabetes()
-    d_dia = dia.data.shape[1]
-    denc_dia = min(8, d_dia)
-    maxiter_dia = 60
-    res_dia = qml_amplitude_train_eval(
-        dia.data,
-        dia.target,
-        task="regression",
-        n_pca=denc_dia,
-        maxiter=maxiter_dia,
-        test_size=test_size,
-        random_state=random_state,
-    )
-    reg_rows.append(
-        result_to_evaluation_row(
-            res_dia,
-            "diabetes_progression",
-            d_dia,
-            denc_dia,
-            maxiter_dia,
-            test_size,
-            random_state,
+    for name, X, y, m_iter in datasets:
+        print(f"\n=== {name} (regresi, Amplitude) ===")
+        d_orig = X.shape[1]
+        # Gunakan 8 atau d_orig, padding ditangani otomatis di fungsi
+        n_pca = 8 if d_orig >= 8 else d_orig
+        res = qml_amplitude_train_eval(
+            X, y, task="regression", n_pca=n_pca,
+            maxiter=m_iter, test_size=test_size, random_state=random_state,
         )
-    )
-
-    print("\n=== California housing (regresi, Amplitude) ===")
-    cal = fetch_california_housing()
-    d_cal = cal.data.shape[1]
-    denc_cal = min(8, d_cal)
-    maxiter_cal = 50
-    res_cal = qml_amplitude_train_eval(
-        cal.data,
-        cal.target,
-        task="regression",
-        n_pca=denc_cal,
-        maxiter=maxiter_cal,
-        test_size=test_size,
-        random_state=random_state,
-    )
-    reg_rows.append(
-        result_to_evaluation_row(
-            res_cal,
-            "california_housing_median_house_value",
-            d_cal,
-            denc_cal,
-            maxiter_cal,
-            test_size,
-            random_state,
-        )
-    )
+        reg_rows.append(result_to_evaluation_row(
+            res, name, d_orig, n_pca, m_iter, test_size, random_state
+        ))
 
     out_dir = Path(__file__).resolve().parent
     clf_path, reg_path = write_evaluation_csvs(
-        clf_rows,
-        reg_rows,
-        out_dir,
+        clf_rows, reg_rows, out_dir,
         clf_filename="eval_classification_amplitude.csv",
         reg_filename="eval_regression_amplitude.csv",
     )
-    print("\n=== Ekspor evaluasi (CSV) — Amplitude ===")
-    print(f"  Klasifikasi: {clf_path}")
-    print(f"  Regresi:     {reg_path}")
-
+    print(f"\n=== Ekspor CSV SELESAI ===\nKlasifikasi: {clf_path}\nRegresi: {reg_path}")
 
 if __name__ == "__main__":
     main()
