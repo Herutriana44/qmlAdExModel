@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
+from sklearn.model_selection import train_test_split
 from sklearn.datasets import (
     fetch_california_housing,
     load_breast_cancer,
