@@ -28,6 +28,7 @@ from sklearn.metrics import (
     recall_score,
 )
 from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.decomposition import PCA
 
 from qml_study_common import (
     PipelineTrainEvalResult,
