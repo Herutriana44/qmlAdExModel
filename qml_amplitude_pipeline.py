@@ -6,6 +6,7 @@ Jalankan: python qml_amplitude_pipeline.py
 
 from __future__ import annotations
 
+import argparse
 import warnings
 from pathlib import Path
 from typing import Any, Literal
@@ -32,6 +33,7 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 from qml_study_common import (
     PipelineTrainEvalResult,
     load_classification_study_specs,
+    load_regression_study_specs,
     l2_normalize_rows,
     result_to_evaluation_row,
     split_scale_pca,
@@ -152,41 +154,44 @@ def qml_amplitude_train_eval(
     raise ValueError("task must be 'classification' or 'regression'")
 
 def main():
+    parser = argparse.ArgumentParser(description="Amplitude Encoding QML Pipeline")
+    parser.add_argument(
+        "--task",
+        choices=["classification", "regression", "both"],
+        default="both",
+        help="Task to run: classification, regression, or both (default: both)",
+    )
+    args = parser.parse_args()
+
     test_size = 0.25
     random_state = 42
     clf_rows, reg_rows = [], []
-    iris = load_iris()
 
-    for spec in load_classification_study_specs():
-        print(f"\n=== {spec.title} klasifikasi — Amplitude (RawFeatureVector), denc={spec.denc} ===")
-        print(f"jumlah fitur : {spec.X.shape[1]}")
-        res = qml_amplitude_train_eval(
-            spec.X, spec.y, task="classification", n_pca=spec.denc,
-            maxiter=spec.maxiter, test_size=test_size, random_state=random_state,
-        )
-        clf_rows.append(result_to_evaluation_row(
-            res, spec.csv_name, spec.d_orig, spec.denc, spec.maxiter, test_size, random_state
-        ))
+    if args.task in ["classification", "both"]:
+        for spec in load_classification_study_specs():
+            print(f"\n=== {spec.title} klasifikasi — Amplitude (RawFeatureVector), denc={spec.denc} ===")
+            print(f"jumlah fitur : {spec.X.shape[1]}")
+            res = qml_amplitude_train_eval(
+                spec.X, spec.y, task="classification", n_pca=spec.denc,
+                maxiter=spec.maxiter, test_size=test_size, random_state=random_state,
+            )
+            clf_rows.append(result_to_evaluation_row(
+                res, spec.csv_name, spec.d_orig, spec.denc, spec.maxiter, test_size, random_state
+            ))
 
-    # --- Regresi ---
-    datasets = [
-        ("iris_petal_width", iris.data[:, :3], iris.data[:, 3], 80),
-        ("diabetes_progression", load_diabetes().data, load_diabetes().target, 60),
-        ("california_housing", fetch_california_housing().data, fetch_california_housing().target, 50)
-    ]
-
-    for name, X, y, m_iter in datasets:
-        print(f"\n=== {name} (regresi, Amplitude) ===")
-        d_orig = X.shape[1]
-        # Gunakan 8 atau d_orig, padding ditangani otomatis di fungsi
-        n_pca = 8 if d_orig >= 8 else d_orig
-        res = qml_amplitude_train_eval(
-            X, y, task="regression", n_pca=n_pca,
-            maxiter=m_iter, test_size=test_size, random_state=random_state,
-        )
-        reg_rows.append(result_to_evaluation_row(
-            res, name, d_orig, n_pca, m_iter, test_size, random_state
-        ))
+    if args.task in ["regression", "both"]:
+        for spec in load_regression_study_specs():
+            print(f"\n=== {spec.title} (regresi, Amplitude) ===")
+            d_orig = spec.X.shape[1]
+            # Gunakan 8 atau d_orig, padding ditangani otomatis di fungsi
+            n_pca = 8 if d_orig >= 8 else d_orig
+            res = qml_amplitude_train_eval(
+                spec.X, spec.y, task="regression", n_pca=n_pca,
+                maxiter=spec.maxiter, test_size=test_size, random_state=random_state,
+            )
+            reg_rows.append(result_to_evaluation_row(
+                res, spec.csv_name, d_orig, n_pca, spec.maxiter, test_size, random_state
+            ))
 
     out_dir = Path(__file__).resolve().parent
     clf_path, reg_path = write_evaluation_csvs(

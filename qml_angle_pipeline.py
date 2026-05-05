@@ -6,6 +6,7 @@ Jalankan: python qml_angle_pipeline.py
 
 from __future__ import annotations
 
+import argparse
 import warnings
 from pathlib import Path
 from typing import Any, Literal
@@ -31,6 +32,7 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 from qml_study_common import (
     PipelineTrainEvalResult,
     load_classification_study_specs,
+    load_regression_study_specs,
     result_to_evaluation_row,
     split_scale_pca,
     write_evaluation_csvs,
@@ -158,113 +160,69 @@ def qml_angle_train_eval(
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Angle Encoding QML Pipeline")
+    parser.add_argument(
+        "--task",
+        choices=["classification", "regression", "both"],
+        default="both",
+        help="Task to run: classification, regression, or both (default: both)",
+    )
+    args = parser.parse_args()
+
     test_size = 0.25
     random_state = 42
     clf_rows: list[dict[str, Any]] = []
     reg_rows: list[dict[str, Any]] = []
-    iris = load_iris()
 
-    for spec in load_classification_study_specs():
-        print(f"\n=== {spec.title} klasifikasi — Angle (Pauli), denc={spec.denc} ===")
-        res = qml_angle_train_eval(
-            spec.X,
-            spec.y,
-            task="classification",
-            n_pca=spec.denc,
-            maxiter=spec.maxiter,
-            test_size=test_size,
-            random_state=random_state,
-        )
-        clf_rows.append(
-            result_to_evaluation_row(
-                res,
-                spec.csv_name,
-                spec.d_orig,
-                spec.denc,
-                spec.maxiter,
-                test_size,
-                random_state,
+    if args.task in ["classification", "both"]:
+        for spec in load_classification_study_specs():
+            print(f"\n=== {spec.title} klasifikasi — Angle (Pauli), denc={spec.denc} ===")
+            res = qml_angle_train_eval(
+                spec.X,
+                spec.y,
+                task="classification",
+                n_pca=spec.denc,
+                maxiter=spec.maxiter,
+                test_size=test_size,
+                random_state=random_state,
             )
-        )
+            clf_rows.append(
+                result_to_evaluation_row(
+                    res,
+                    spec.csv_name,
+                    spec.d_orig,
+                    spec.denc,
+                    spec.maxiter,
+                    test_size,
+                    random_state,
+                )
+            )
 
-    print("\n=== Iris regresi: 3 fitur -> lebar kelopak (Angle) ===")
-    Xr = iris.data[:, :3]
-    yr = iris.data[:, 3]
-    d_iris = Xr.shape[1]
-    denc_iris = min(8, d_iris)
-    maxiter_iris_reg = 80
-    res_ir = qml_angle_train_eval(
-        Xr,
-        yr,
-        task="regression",
-        n_pca=denc_iris,
-        maxiter=maxiter_iris_reg,
-        test_size=test_size,
-        random_state=random_state,
-    )
-    reg_rows.append(
-        result_to_evaluation_row(
-            res_ir,
-            "iris_petal_width",
-            d_iris,
-            denc_iris,
-            maxiter_iris_reg,
-            test_size,
-            random_state,
-        )
-    )
-
-    print("\n=== Diabetes (regresi, Angle) ===")
-    dia = load_diabetes()
-    d_dia = dia.data.shape[1]
-    denc_dia = min(8, d_dia)
-    maxiter_dia = 60
-    res_dia = qml_angle_train_eval(
-        dia.data,
-        dia.target,
-        task="regression",
-        n_pca=denc_dia,
-        maxiter=maxiter_dia,
-        test_size=test_size,
-        random_state=random_state,
-    )
-    reg_rows.append(
-        result_to_evaluation_row(
-            res_dia,
-            "diabetes_progression",
-            d_dia,
-            denc_dia,
-            maxiter_dia,
-            test_size,
-            random_state,
-        )
-    )
-
-    print("\n=== California housing (regresi, Angle) ===")
-    cal = fetch_california_housing()
-    d_cal = cal.data.shape[1]
-    denc_cal = min(8, d_cal)
-    maxiter_cal = 50
-    res_cal = qml_angle_train_eval(
-        cal.data,
-        cal.target,
-        task="regression",
-        n_pca=denc_cal,
-        maxiter=maxiter_cal,
-        test_size=test_size,
-        random_state=random_state,
-    )
-    reg_rows.append(
-        result_to_evaluation_row(
-            res_cal,
-            "california_housing_median_house_value",
-            d_cal,
-            denc_cal,
-            maxiter_cal,
-            test_size,
-            random_state,
-        )
-    )
+    if args.task in ["regression", "both"]:
+        for spec in load_regression_study_specs():
+            print(f"\n=== {spec.title} (regresi, Angle) ===")
+            d_orig = spec.X.shape[1]
+            n_pca = 8 if d_orig >= 8 else d_orig
+            res = qml_angle_train_eval(
+                spec.X,
+                spec.y,
+                task="regression",
+                n_pca=n_pca,
+                maxiter=spec.maxiter,
+                test_size=test_size,
+                random_state=random_state,
+            )
+            reg_rows.append(
+                result_to_evaluation_row(
+                    res,
+                    spec.csv_name,
+                    spec.d_orig,
+                    n_pca,
+                    spec.maxiter,
+                    test_size,
+                    random_state,
+                )
+            )
 
     out_dir = Path(__file__).resolve().parent
     clf_path, reg_path = write_evaluation_csvs(
@@ -275,8 +233,10 @@ def main():
         reg_filename="eval_regression_angle.csv",
     )
     print("\n=== Ekspor evaluasi (CSV) — Angle ===")
-    print(f"  Klasifikasi: {clf_path}")
-    print(f"  Regresi:     {reg_path}")
+    if args.task in ["classification", "both"]:
+        print(f"  Klasifikasi: {clf_path}")
+    if args.task in ["regression", "both"]:
+        print(f"  Regresi:     {reg_path}")
 
 
 if __name__ == "__main__":

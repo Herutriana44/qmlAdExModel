@@ -12,7 +12,9 @@ from typing import Any, Literal
 
 import numpy as np
 from sklearn.datasets import (
+    fetch_california_housing,
     load_breast_cancer,
+    load_diabetes,
     load_digits,
     load_iris,
     load_wine,
@@ -20,9 +22,6 @@ from sklearn.datasets import (
     make_circles,
     make_moons,
 )
-from sklearn.decomposition import PCA
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
 
 STUDY_RANDOM_STATE = 42
 
@@ -31,7 +30,7 @@ TaskType = Literal["classification", "regression"]
 
 @dataclass(frozen=True)
 class ClassificationStudySpec:
-    """Satu baris studi: Iris, Wine, … sesuai tabel #Samples, d(orig), #Classes, denc."""
+    """Satu baris studi klasifikasi."""
 
     csv_name: str
     title: str
@@ -44,9 +43,23 @@ class ClassificationStudySpec:
     maxiter: int
 
 
+@dataclass(frozen=True)
+class RegressionStudySpec:
+    """Satu baris studi regresi."""
+
+    csv_name: str
+    title: str
+    X: np.ndarray
+    y: np.ndarray
+    n_samples: int
+    d_orig: int
+    denc: int
+    maxiter: int
+
+
 def load_classification_study_specs() -> list[ClassificationStudySpec]:
     """
-    Memuat 7 dataset klasifikasi sesuai tabel studi (seed tetap untuk sintetis).
+    Memuat 7 dataset klasifikasi sesuai tabel studi.
     """
     rs = STUDY_RANDOM_STATE
     iris = load_iris()
@@ -180,6 +193,49 @@ def load_classification_study_specs() -> list[ClassificationStudySpec]:
             )
         out.append(spec)
     return out
+
+
+def load_regression_study_specs() -> list[RegressionStudySpec]:
+    """
+    Memuat 3 dataset regresi sesuai pipeline.
+    """
+    iris = load_iris()
+    dia = load_diabetes()
+    cal = fetch_california_housing()
+
+    return [
+        RegressionStudySpec(
+            csv_name="iris_petal_width",
+            title="Iris Petal Width",
+            X=np.asarray(iris.data[:, :3], dtype=float),
+            y=np.asarray(iris.data[:, 3], dtype=float),
+            n_samples=150,
+            d_orig=3,
+            denc=3,
+            maxiter=80,
+        ),
+        RegressionStudySpec(
+            csv_name="diabetes_progression",
+            title="Diabetes",
+            X=np.asarray(dia.data, dtype=float),
+            y=np.asarray(dia.target, dtype=float),
+            n_samples=442,
+            d_orig=10,
+            denc=8,
+            maxiter=60,
+        ),
+        RegressionStudySpec(
+            csv_name="california_housing",
+            title="California Housing",
+            X=np.asarray(cal.data, dtype=float),
+            y=np.asarray(cal.target, dtype=float),
+            n_samples=20640,
+            d_orig=8,
+            denc=8,
+            maxiter=50,
+        ),
+    ]
+
 
 
 @dataclass
