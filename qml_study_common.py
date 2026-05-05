@@ -24,6 +24,7 @@ from sklearn.datasets import (
     make_circles,
     make_moons,
 )
+from sklearn.decomposition import PCA
 
 STUDY_RANDOM_STATE = 42
 
